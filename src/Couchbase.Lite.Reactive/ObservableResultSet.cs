@@ -1,6 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
+using System.Collections.Concurrent;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
@@ -11,17 +10,17 @@ namespace Couchbase.Lite.Reactive
 {
     public static class ObservableResultSet
     {
-        private static readonly IList<ObservableTracker> _observers = new List<ObservableTracker>();
+        private static readonly ConcurrentDictionary<Guid, ObservableTracker> _observers = new ConcurrentDictionary<Guid, ObservableTracker>();
         private static readonly BehaviorSubject<int> _connectionCount = new BehaviorSubject<int>(0);
 
         public static IObservable<int> ConnectionCount => _connectionCount.AsObservable();
 
         public static void CloseActiveObservables()
         {
-            Parallel.ForEach(_observers, x =>
+            Parallel.ForEach(_observers.Values, x =>
             {
                 x.Observer.OnCompleted();
-                x.Disposable.Dispose();
+                x.Dispose();
             });
 
             _connectionCount.OnCompleted();
@@ -41,12 +40,12 @@ namespace Couchbase.Lite.Reactive
                 {
                     q.RemoveChangeListener(token);
                     q.Dispose();
-                    _observers.Remove(_observers.First(x => x.Key == key));
+                    _observers.TryRemove(key, out _);
                     _connectionCount.OnNext(_observers.Count);
                 });
 
                 tracker.AddDisposable(disposable);
-                _observers.Add(tracker);
+                _observers.TryAdd(key, tracker);
                 _connectionCount.OnNext(_observers.Count);
 
                 return disposable;
